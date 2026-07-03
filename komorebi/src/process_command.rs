@@ -190,6 +190,7 @@ pub fn listen_for_commands_tcp(wm: Arc<Mutex<WindowManager>>, port: usize) {
 impl WindowManager {
     /// Searches all monitors/workspaces for a window matching `locate`, then focuses
     /// the monitor, workspace, container and window it belongs to.
+    /// If no window matches, this is a no-op.
     fn focus_window_by_location<F>(&mut self, locate: F) -> eyre::Result<()>
     where
         F: Fn(&Workspace) -> Option<WorkspaceWindowLocation>,
