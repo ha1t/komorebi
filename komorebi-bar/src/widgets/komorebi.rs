@@ -60,6 +60,9 @@ pub struct KomorebiConfig {
     /// Configure the Focused Container widget
     #[serde(alias = "focused_window")]
     pub focused_container: Option<KomorebiFocusedContainerConfig>,
+    /// Configure the Workspace Windows widget (taskbar-like list of all
+    /// windows on the focused workspace)
+    pub workspace_windows: Option<KomorebiWorkspaceWindowsConfig>,
     /// Configure the Locked Container widget
     pub locked_container: Option<KomorebiLockedContainerConfig>,
     /// Configure the Configuration Switcher widget
@@ -117,6 +120,16 @@ pub struct KomorebiFocusedContainerConfig {
 
 #[derive(Copy, Clone, Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+/// Komorebi widget workspace windows configuration
+pub struct KomorebiWorkspaceWindowsConfig {
+    /// Enable the Komorebi Workspace Windows widget
+    pub enable: bool,
+    /// Display format of the workspace windows (default: IconAndTextOnSelected)
+    pub display: Option<DisplayFormat>,
+}
+
+#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 /// Komorebi widget locked container configuration
 pub struct KomorebiLockedContainerConfig {
     /// Enable the Komorebi Locked Container widget
@@ -160,6 +173,11 @@ impl From<&KomorebiConfig> for Komorebi {
             focused_container: cfg
                 .focused_container
                 .and_then(FocusedContainerBar::try_from),
+            workspace_windows: cfg.workspace_windows.and_then(|c| {
+                c.enable.then(|| {
+                    FocusedContainerBar::from_format(c.display.unwrap_or(IconAndTextOnSelected))
+                })
+            }),
             workspace_layer: cfg.workspace_layer.and_then(WorkspaceLayerBar::try_from),
             locked_container: cfg.locked_container.and_then(LockedContainerBar::try_from),
             configuration_switcher,
@@ -173,6 +191,7 @@ pub struct Komorebi {
     pub workspaces: Option<WorkspacesBar>,
     pub layout: Option<KomorebiLayoutConfig>,
     pub focused_container: Option<FocusedContainerBar>,
+    pub workspace_windows: Option<FocusedContainerBar>,
     pub workspace_layer: Option<WorkspaceLayerBar>,
     pub locked_container: Option<LockedContainerBar>,
     pub configuration_switcher: Option<KomorebiConfigurationSwitcherConfig>,
@@ -181,6 +200,7 @@ pub struct Komorebi {
 impl BarWidget for Komorebi {
     fn render(&mut self, ctx: &Context, ui: &mut Ui, config: &mut RenderConfig) {
         self.render_workspaces(ctx, ui, config);
+        self.render_workspace_windows(ctx, ui, config);
         self.render_workspace_layer(ctx, ui, config);
         self.render_layout(ctx, ui, config);
         self.render_config_switcher(ui, config);
@@ -317,6 +337,41 @@ impl Komorebi {
                     .then(|| Self::send_messages(&[FocusMonitorAtCursor, ToggleLock]));
             });
         }
+    }
+
+    /// Renders a taskbar-like list of all windows on the focused workspace.
+    /// The focused window is highlighted; clicking any other window focuses it.
+    fn render_workspace_windows(&mut self, ctx: &Context, ui: &mut Ui, config: &mut RenderConfig) {
+        let Some(bar) = &self.workspace_windows else {
+            return;
+        };
+        let monitor_info = &*self.monitor_info.borrow();
+        let Some(workspace) = monitor_info.focused_workspace() else {
+            return;
+        };
+        config.apply_on_widget(false, ui, |ui| {
+            for container in &workspace.containers {
+                for (idx, window) in container.windows.iter().enumerate() {
+                    let selected = container.is_focused && idx == container.focused_window_idx;
+                    let text_color = if selected {
+                        ctx.style().visuals.selection.stroke.color
+                    } else {
+                        ui.style().visuals.text_color()
+                    };
+
+                    let response = SelectableFrame::new(selected).show(ui, |ui| {
+                        (bar.renderer)(bar, ctx, ui, window, text_color, selected)
+                    });
+
+                    if response.clicked() && !selected {
+                        let _ = Self::send_with_mouse_follow_off(
+                            monitor_info,
+                            FocusWindowByHwnd(window.hwnd),
+                        );
+                    }
+                }
+            }
+        });
     }
 
     fn render_focused_container(&mut self, ctx: &Context, ui: &mut Ui, config: &mut RenderConfig) {
@@ -568,6 +623,12 @@ impl FocusedContainerBar {
                 Text
             });
 
+        Some(Self::from_format(format))
+    }
+
+    /// Creates a bar rendering a list of windows with the given display format.
+    /// Used by both the Focused Container and the Workspace Windows widgets.
+    fn from_format(format: DisplayFormat) -> Self {
         // Select renderer strategy based on display format for better performance
         let renderer: fn(&FocusedContainerBar, &Context, &mut Ui, &WindowInfo, Color32, bool) =
             match format {
@@ -595,10 +656,10 @@ impl FocusedContainerBar {
                 },
             };
 
-        Some(FocusedContainerBar {
+        FocusedContainerBar {
             renderer,
             icon_size: Vec2::splat(12.5 * 1.4),
-        })
+        }
     }
 
     /// Draws window icon(s) at configured size; adds hover text if HOVEL is true.
