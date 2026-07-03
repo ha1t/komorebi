@@ -64,8 +64,6 @@ pub struct RenderConfig {
     pub text_font_id: FontId,
     /// FontId for icon (based on scaling the text font id)
     pub icon_font_id: FontId,
-    /// Show all icons on the workspace section of the Komorebi widget
-    pub show_all_icons: bool,
     /// Background color of the selected frame
     pub auto_select_fill: Option<Color32>,
     /// Text color of the selected frame
@@ -104,15 +102,6 @@ impl RenderExt for &KomobarConfig {
             None => 0,
         };
 
-        // check if any of the alignments have a komorebi widget with the workspace set to show all icons
-        let show_all_icons =
-            KomobarConfig::show_all_icons_on_komorebi_workspace(&self.left_widgets)
-                || self
-                    .center_widgets
-                    .as_ref()
-                    .is_some_and(|list| KomobarConfig::show_all_icons_on_komorebi_workspace(list))
-                || KomobarConfig::show_all_icons_on_komorebi_workspace(&self.right_widgets);
-
         RenderConfig {
             monitor_idx,
             spacing: self.widget_spacing.unwrap_or(10.0),
@@ -123,7 +112,6 @@ impl RenderExt for &KomobarConfig {
             applied_on_widget: false,
             text_font_id,
             icon_font_id,
-            show_all_icons,
             auto_select_fill: NonZeroU32::new(AUTO_SELECT_FILL_COLOUR.load(Ordering::SeqCst))
                 .map(|c| Colour::Rgb(Rgb::from(c.get())).into()),
             auto_select_text: NonZeroU32::new(AUTO_SELECT_TEXT_COLOUR.load(Ordering::SeqCst))
@@ -152,7 +140,6 @@ impl RenderConfig {
             applied_on_widget: false,
             text_font_id: FontId::default(),
             icon_font_id: FontId::default(),
-            show_all_icons: false,
             auto_select_fill: None,
             auto_select_text: None,
         }

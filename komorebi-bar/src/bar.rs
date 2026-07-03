@@ -983,11 +983,9 @@ impl eframe::App for Komobar {
                 }
 
                 if let Some(monitor_info) = &self.monitor_info {
-                    monitor_info.borrow_mut().update(
-                        self.monitor_index,
-                        notification.state,
-                        self.render_config.borrow().show_all_icons,
-                    );
+                    monitor_info
+                        .borrow_mut()
+                        .update(self.monitor_index, notification.state);
                     handle_notification(
                         ctx,
                         notification.event,
