@@ -374,21 +374,37 @@ impl Komobar {
         let mut monitor_info = previous_monitor_info;
         let mut komorebi_widgets = Vec::new();
 
-        for (idx, widget_config) in self.config.left_widgets.iter().enumerate() {
+        for (idx, widget_config) in self
+            .config
+            .left_widgets
+            .iter()
+            .filter(|config| config.enabled())
+            .enumerate()
+        {
             if let WidgetConfig::Komorebi(config) = widget_config {
                 komorebi_widgets.push((Komorebi::from(config), idx, Alignment::Left));
             }
         }
 
         if let Some(center_widgets) = &self.config.center_widgets {
-            for (idx, widget_config) in center_widgets.iter().enumerate() {
+            for (idx, widget_config) in center_widgets
+                .iter()
+                .filter(|config| config.enabled())
+                .enumerate()
+            {
                 if let WidgetConfig::Komorebi(config) = widget_config {
                     komorebi_widgets.push((Komorebi::from(config), idx, Alignment::Center));
                 }
             }
         }
 
-        for (idx, widget_config) in self.config.right_widgets.iter().enumerate() {
+        for (idx, widget_config) in self
+            .config
+            .right_widgets
+            .iter()
+            .filter(|config| config.enabled())
+            .enumerate()
+        {
             if let WidgetConfig::Komorebi(config) = widget_config {
                 komorebi_widgets.push((Komorebi::from(config), idx, Alignment::Right));
             }
@@ -983,11 +999,9 @@ impl eframe::App for Komobar {
                 }
 
                 if let Some(monitor_info) = &self.monitor_info {
-                    monitor_info.borrow_mut().update(
-                        self.monitor_index,
-                        notification.state,
-                        self.render_config.borrow().show_all_icons,
-                    );
+                    monitor_info
+                        .borrow_mut()
+                        .update(self.monitor_index, notification.state);
                     handle_notification(
                         ctx,
                         notification.event,

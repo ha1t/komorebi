@@ -154,7 +154,7 @@ impl Default for Workspace {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum WorkspaceWindowLocation {
     Monocle(usize), // window_idx
     Maximized,
@@ -905,6 +905,37 @@ impl Workspace {
             if let Ok(window_exe) = window.exe()
                 && exe == window_exe
             {
+                return Some(WorkspaceWindowLocation::Floating(window_idx));
+            }
+        }
+
+        None
+    }
+
+    pub fn location_from_hwnd(&self, hwnd: isize) -> Option<WorkspaceWindowLocation> {
+        for (container_idx, container) in self.containers().iter().enumerate() {
+            if let Some(window_idx) = container.idx_for_window(hwnd) {
+                return Some(WorkspaceWindowLocation::Container(
+                    container_idx,
+                    window_idx,
+                ));
+            }
+        }
+
+        if let Some(window) = self.maximized_window
+            && window.hwnd == hwnd
+        {
+            return Some(WorkspaceWindowLocation::Maximized);
+        }
+
+        if let Some(container) = &self.monocle_container
+            && let Some(window_idx) = container.idx_for_window(hwnd)
+        {
+            return Some(WorkspaceWindowLocation::Monocle(window_idx));
+        }
+
+        for (window_idx, window) in self.floating_windows().iter().enumerate() {
+            if window.hwnd == hwnd {
                 return Some(WorkspaceWindowLocation::Floating(window_idx));
             }
         }
@@ -2685,5 +2716,54 @@ mod tests {
             assert_eq!(visible_windows[1].unwrap().hwnd, 100);
             assert_eq!(visible_windows[2].unwrap().hwnd, 300);
         }
+    }
+
+    #[test]
+    fn test_location_from_hwnd() {
+        let mut ws = Workspace::default();
+
+        // タイルコンテナ0: 2枚のスタック
+        let mut stack = Container::default();
+        stack.windows_mut().push_back(Window::from(10));
+        stack.windows_mut().push_back(Window::from(11));
+        ws.add_container_to_back(stack);
+
+        // タイルコンテナ1: 単独ウインドウ
+        let mut single = Container::default();
+        single.windows_mut().push_back(Window::from(20));
+        ws.add_container_to_back(single);
+
+        // モノクルコンテナ
+        let mut monocle = Container::default();
+        monocle.windows_mut().push_back(Window::from(30));
+        ws.monocle_container = Some(monocle);
+
+        // フローティングウインドウ
+        ws.floating_windows_mut().push_back(Window::from(40));
+
+        // 最大化ウインドウ
+        ws.maximized_window = Some(Window::from(50));
+
+        assert_eq!(
+            ws.location_from_hwnd(11),
+            Some(WorkspaceWindowLocation::Container(0, 1))
+        );
+        assert_eq!(
+            ws.location_from_hwnd(20),
+            Some(WorkspaceWindowLocation::Container(1, 0))
+        );
+        assert_eq!(
+            ws.location_from_hwnd(30),
+            Some(WorkspaceWindowLocation::Monocle(0))
+        );
+        assert_eq!(
+            ws.location_from_hwnd(40),
+            Some(WorkspaceWindowLocation::Floating(0))
+        );
+        assert_eq!(
+            ws.location_from_hwnd(50),
+            Some(WorkspaceWindowLocation::Maximized)
+        );
+        assert_eq!(ws.location_from_hwnd(999), None);
     }
 }

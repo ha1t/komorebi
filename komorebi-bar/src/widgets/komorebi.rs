@@ -60,6 +60,9 @@ pub struct KomorebiConfig {
     /// Configure the Focused Container widget
     #[serde(alias = "focused_window")]
     pub focused_container: Option<KomorebiFocusedContainerConfig>,
+    /// Configure the Workspace Windows widget (taskbar-like list of all
+    /// windows on the focused workspace)
+    pub workspace_windows: Option<KomorebiWorkspaceWindowsConfig>,
     /// Configure the Locked Container widget
     pub locked_container: Option<KomorebiLockedContainerConfig>,
     /// Configure the Configuration Switcher widget
@@ -117,6 +120,16 @@ pub struct KomorebiFocusedContainerConfig {
 
 #[derive(Copy, Clone, Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+/// Komorebi widget workspace windows configuration
+pub struct KomorebiWorkspaceWindowsConfig {
+    /// Enable the Komorebi Workspace Windows widget
+    pub enable: bool,
+    /// Display format of the workspace windows (default: IconAndTextOnSelected)
+    pub display: Option<DisplayFormat>,
+}
+
+#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 /// Komorebi widget locked container configuration
 pub struct KomorebiLockedContainerConfig {
     /// Enable the Komorebi Locked Container widget
@@ -160,6 +173,11 @@ impl From<&KomorebiConfig> for Komorebi {
             focused_container: cfg
                 .focused_container
                 .and_then(FocusedContainerBar::try_from),
+            workspace_windows: cfg.workspace_windows.and_then(|c| {
+                c.enable.then(|| {
+                    FocusedContainerBar::from_format(c.display.unwrap_or(IconAndTextOnSelected))
+                })
+            }),
             workspace_layer: cfg.workspace_layer.and_then(WorkspaceLayerBar::try_from),
             locked_container: cfg.locked_container.and_then(LockedContainerBar::try_from),
             configuration_switcher,
@@ -173,6 +191,7 @@ pub struct Komorebi {
     pub workspaces: Option<WorkspacesBar>,
     pub layout: Option<KomorebiLayoutConfig>,
     pub focused_container: Option<FocusedContainerBar>,
+    pub workspace_windows: Option<FocusedContainerBar>,
     pub workspace_layer: Option<WorkspaceLayerBar>,
     pub locked_container: Option<LockedContainerBar>,
     pub configuration_switcher: Option<KomorebiConfigurationSwitcherConfig>,
@@ -181,6 +200,7 @@ pub struct Komorebi {
 impl BarWidget for Komorebi {
     fn render(&mut self, ctx: &Context, ui: &mut Ui, config: &mut RenderConfig) {
         self.render_workspaces(ctx, ui, config);
+        self.render_workspace_windows(ctx, ui, config);
         self.render_workspace_layer(ctx, ui, config);
         self.render_layout(ctx, ui, config);
         self.render_config_switcher(ui, config);
@@ -319,6 +339,41 @@ impl Komorebi {
         }
     }
 
+    /// Renders a taskbar-like list of all windows on the focused workspace.
+    /// The focused window is highlighted; clicking any other window focuses it.
+    fn render_workspace_windows(&mut self, ctx: &Context, ui: &mut Ui, config: &mut RenderConfig) {
+        let Some(bar) = &self.workspace_windows else {
+            return;
+        };
+        let monitor_info = &*self.monitor_info.borrow();
+        let Some(workspace) = monitor_info.focused_workspace() else {
+            return;
+        };
+        config.apply_on_widget(false, ui, |ui| {
+            for container in &workspace.containers {
+                for (idx, window) in container.windows.iter().enumerate() {
+                    let selected = container.is_focused && idx == container.focused_window_idx;
+                    let text_color = if selected {
+                        ctx.style().visuals.selection.stroke.color
+                    } else {
+                        ui.style().visuals.text_color()
+                    };
+
+                    let response = SelectableFrame::new(selected).show(ui, |ui| {
+                        (bar.renderer)(bar, ctx, ui, window, text_color, selected)
+                    });
+
+                    if response.clicked() && !selected {
+                        let _ = Self::send_with_mouse_follow_off(
+                            monitor_info,
+                            FocusWindowByHwnd(window.hwnd),
+                        );
+                    }
+                }
+            }
+        });
+    }
+
     fn render_focused_container(&mut self, ctx: &Context, ui: &mut Ui, config: &mut RenderConfig) {
         let Some(bar) = &self.focused_container else {
             return;
@@ -394,34 +449,54 @@ impl WorkspacesBar {
         // for better performance
         let renderer: fn(&Self, &Context, &mut Ui, &WorkspaceInfo) =
             match value.display.unwrap_or(DisplayFormat::Text.into()) {
-                // 1: Show icons if any, fallback if none | Only hover workspace name
-                AllIcons | Existing(DisplayFormat::Icon) => |bar, ctx, ui, ws| {
-                    bar.show_icons(ctx, ui, ws)
+                // 1a: Show all windows' icons if any, fallback if none | Only hover workspace name
+                AllIcons => |bar, ctx, ui, ws| {
+                    bar.show_icons_all(ctx, ui, ws)
                         .unwrap_or_else(|| bar.show_fallback_icon(ctx, ui, ws))
                         .on_hover_text(&ws.name);
                 },
-                // 2: Show icons, with no fallback | Label workspace name (no hover)
-                AllIconsAndText | Existing(DisplayFormat::IconAndText) => |bar, ctx, ui, ws| {
-                    bar.show_icons(ctx, ui, ws);
+                // 1b: Show focused container's icons if any, fallback if none | Only hover workspace name
+                Existing(DisplayFormat::Icon) => |bar, ctx, ui, ws| {
+                    bar.show_icons_focused(ctx, ui, ws)
+                        .unwrap_or_else(|| bar.show_fallback_icon(ctx, ui, ws))
+                        .on_hover_text(&ws.name);
+                },
+                // 2a: Show all icons, with no fallback | Label workspace name (no hover)
+                AllIconsAndText => |bar, ctx, ui, ws| {
+                    bar.show_icons_all(ctx, ui, ws);
                     Self::show_label(ctx, ui, ws);
                 },
-                // 3: Show icons, fallback if no icons and not selected | Label workspace name if selected else hover
-                AllIconsAndTextOnSelected | Existing(DisplayFormat::IconAndTextOnSelected) => {
-                    |bar, ctx, ui, ws| {
-                        if bar.show_icons(ctx, ui, ws).is_none() && !ws.is_selected {
-                            bar.show_fallback_icon(ctx, ui, ws);
-                        }
-                        if ws.is_selected {
-                            Self::show_label(ctx, ui, ws);
-                        } else {
-                            ui.response().on_hover_text(&ws.name);
-                        }
+                // 2b: Show focused container's icons, with no fallback | Label workspace name (no hover)
+                Existing(DisplayFormat::IconAndText) => |bar, ctx, ui, ws| {
+                    bar.show_icons_focused(ctx, ui, ws);
+                    Self::show_label(ctx, ui, ws);
+                },
+                // 3a: All icons, fallback if no icons and not selected | Label if selected else hover
+                AllIconsAndTextOnSelected => |bar, ctx, ui, ws| {
+                    if bar.show_icons_all(ctx, ui, ws).is_none() && !ws.is_selected {
+                        bar.show_fallback_icon(ctx, ui, ws);
                     }
-                }
-                // 4: Show icons if selected and has icons (no fallback) | Label workspace name
+                    if ws.is_selected {
+                        Self::show_label(ctx, ui, ws);
+                    } else {
+                        ui.response().on_hover_text(&ws.name);
+                    }
+                },
+                // 3b: Focused icons, fallback if no icons and not selected | Label if selected else hover
+                Existing(DisplayFormat::IconAndTextOnSelected) => |bar, ctx, ui, ws| {
+                    if bar.show_icons_focused(ctx, ui, ws).is_none() && !ws.is_selected {
+                        bar.show_fallback_icon(ctx, ui, ws);
+                    }
+                    if ws.is_selected {
+                        Self::show_label(ctx, ui, ws);
+                    } else {
+                        ui.response().on_hover_text(&ws.name);
+                    }
+                },
+                // 4: Show focused icons if selected (no fallback) | Label workspace name
                 Existing(DisplayFormat::TextAndIconOnSelected) => |bar, ctx, ui, ws| {
                     if ws.is_selected {
-                        bar.show_icons(ctx, ui, ws);
+                        bar.show_icons_focused(ctx, ui, ws);
                     }
                     Self::show_label(ctx, ui, ws);
                 },
@@ -440,7 +515,7 @@ impl WorkspacesBar {
 
     /// Draws all window icons for the workspace, using larger size for the focused container.
     /// Returns response if icons exist, or None.
-    fn show_icons(&self, ctx: &Context, ui: &mut Ui, ws: &WorkspaceInfo) -> Option<Response> {
+    fn show_icons_all(&self, ctx: &Context, ui: &mut Ui, ws: &WorkspaceInfo) -> Option<Response> {
         ws.has_icons.then(|| {
             Frame::NONE
                 .inner_margin(Margin::same(ui.style().spacing.button_padding.y as i8))
@@ -461,6 +536,29 @@ impl WorkspacesBar {
                 })
                 .response
         })
+    }
+
+    /// Draws the focused container's window icons only.
+    /// Returns response if icons exist, or None.
+    fn show_icons_focused(&self, ctx: &Context, ui: &mut Ui, ws: &WorkspaceInfo) -> Option<Response> {
+        let container = ws.focused_container()?;
+        if !container.windows.iter().any(|win| win.icon.is_some()) {
+            return None;
+        }
+        Some(
+            Frame::NONE
+                .inner_margin(Margin::same(ui.style().spacing.button_padding.y as i8))
+                .show(ui, |ui| {
+                    for icon in container.windows.iter().filter_map(|win| win.icon.as_ref()) {
+                        ui.add(
+                            Image::from(&icon.texture(ctx))
+                                .maintain_aspect_ratio(true)
+                                .fit_to_exact_size(self.icon_size),
+                        );
+                    }
+                })
+                .response,
+        )
     }
 
     /// Draws a fallback icon (a rectangle with a diagonal) for the workspace.
@@ -525,6 +623,12 @@ impl FocusedContainerBar {
                 Text
             });
 
+        Some(Self::from_format(format))
+    }
+
+    /// Creates a bar rendering a list of windows with the given display format.
+    /// Used by both the Focused Container and the Workspace Windows widgets.
+    fn from_format(format: DisplayFormat) -> Self {
         // Select renderer strategy based on display format for better performance
         let renderer: fn(&FocusedContainerBar, &Context, &mut Ui, &WindowInfo, Color32, bool) =
             match format {
@@ -538,9 +642,10 @@ impl FocusedContainerBar {
                     FocusedContainerBar::show_icon::<false>(_self, ctx, ui, info);
                     FocusedContainerBar::show_title(_self, ui, info, color);
                 },
+                // Windows without an icon always show their title to avoid an invisible button
                 IconAndTextOnSelected => |_self, ctx, ui, info, color, focused| {
                     FocusedContainerBar::show_icon::<false>(_self, ctx, ui, info);
-                    if focused {
+                    if focused || info.icon.is_none() {
                         FocusedContainerBar::show_title(_self, ui, info, color);
                     }
                 },
@@ -552,10 +657,10 @@ impl FocusedContainerBar {
                 },
             };
 
-        Some(FocusedContainerBar {
+        FocusedContainerBar {
             renderer,
             icon_size: Vec2::splat(12.5 * 1.4),
-        })
+        }
     }
 
     /// Draws window icon(s) at configured size; adds hover text if HOVEL is true.
@@ -767,7 +872,6 @@ pub struct MonitorInfo {
     pub monitor_index: usize,
     pub monitor_usr_idx_map: HashMap<usize, usize>,
     pub focused_workspace_idx: Option<usize>,
-    pub show_all_icons: bool,
     pub hide_empty_workspaces: bool,
 }
 
@@ -781,7 +885,6 @@ impl Default for MonitorInfo {
             monitor_index: MONITOR_INDEX.load(Ordering::SeqCst),
             monitor_usr_idx_map: HashMap::new(),
             focused_workspace_idx: None,
-            show_all_icons: false,
             hide_empty_workspaces: false,
         }
     }
@@ -812,8 +915,7 @@ impl MonitorInfo {
 
     /// Updates monitor state from the given State, setting all fields based on the selected
     /// monitor and its workspaces
-    pub fn update(&mut self, monitor_index: Option<usize>, state: State, show_all_icons: bool) {
-        self.show_all_icons = show_all_icons;
+    pub fn update(&mut self, monitor_index: Option<usize>, state: State) {
         self.monitor_usr_idx_map = state.monitor_usr_idx_map;
 
         match monitor_index {
@@ -834,7 +936,6 @@ impl MonitorInfo {
 
         self.workspaces.clear();
         self.workspaces.extend(Self::workspaces(
-            self.show_all_icons,
             self.hide_empty_workspaces,
             self.focused_workspace_idx,
             monitor.workspaces().iter().enumerate(),
@@ -843,7 +944,6 @@ impl MonitorInfo {
 
     /// Builds an iterator of WorkspaceInfo for the monitor.
     fn workspaces<'a, I>(
-        show_all_icons: bool,
         hide_empty_ws: bool,
         focused_ws_idx: Option<usize>,
         iter: I,
@@ -851,17 +951,10 @@ impl MonitorInfo {
     where
         I: Iterator<Item = (usize, &'a Workspace)> + 'a,
     {
-        let fn_containers_from = if show_all_icons {
-            |ws| ContainerInfo::from_all_containers(ws)
-        } else {
-            |ws| {
-                ContainerInfo::from_focused_container(ws)
-                    .into_iter()
-                    .collect()
-            }
-        };
         iter.map(move |(index, ws)| {
-            let containers = fn_containers_from(ws);
+            // Container collection is intentionally unconditional: the workspace_windows
+            // widget needs every container's windows at all times, not just for All* formats
+            let containers = ContainerInfo::from_all_containers(ws);
             WorkspaceInfo {
                 name: ws
                     .name
@@ -942,7 +1035,8 @@ impl ContainerInfo {
     /// Function ensures only one container is marked as focused, prioritizing
     /// floating → monocle → tiled.
     pub fn from_all_containers(ws: &Workspace) -> Vec<Self> {
-        let has_focused_float = ws.floating_windows().iter().any(|w| w.is_focused());
+        let has_focused_float = ws.floating_windows().iter().any(|w| w.is_focused())
+            || ws.maximized_window.as_ref().is_some_and(|w| w.is_focused());
 
         // Monocle container first if present
         let monocle = ws
@@ -959,26 +1053,15 @@ impl ContainerInfo {
 
         // All floating windows
         let floats = ws.floating_windows().iter().map(Self::from_window);
+        // The maximized window, if any
+        let maximized = ws.maximized_window.as_ref().map(Self::from_window);
         // All windows
-        monocle.into_iter().chain(tiled).chain(floats).collect()
-    }
-
-    /// Creates a `ContainerInfo` for the currently focused item in the workspace.
-    ///
-    /// The function checks focus in the following order:
-    /// 1. Focused floating window
-    /// 2. Monocle container
-    /// 3. Focused tiled container
-    pub fn from_focused_container(ws: &Workspace) -> Option<Self> {
-        if let Some(window) = ws.floating_windows().iter().find(|w| w.is_focused()) {
-            return Some(Self::from_window(window));
-        }
-        if let Some(container) = &ws.monocle_container {
-            Some(Self::from_container(container, true))
-        } else {
-            ws.focused_container()
-                .map(|container| Self::from_container(container, true))
-        }
+        monocle
+            .into_iter()
+            .chain(tiled)
+            .chain(floats)
+            .chain(maximized)
+            .collect()
     }
 
     /// Creates a `ContainerInfo` from a given container.
@@ -1005,11 +1088,12 @@ impl ContainerInfo {
 }
 
 /// Stores basic information about a single window in a container.
-/// Contains the window's title and its icon, if available.
+/// Contains the window's title, its icon if available, and its hwnd.
 #[derive(Clone, Debug)]
 pub struct WindowInfo {
     pub title: Option<String>,
     pub icon: Option<ImageIcon>,
+    pub hwnd: isize,
 }
 
 impl From<&Window> for WindowInfo {
@@ -1020,6 +1104,7 @@ impl From<&Window> for WindowInfo {
                 windows_icons::get_icon_by_hwnd(value.hwnd)
                     .or_else(|| windows_icons_fallback::get_icon_by_process_id(value.process_id()))
             }),
+            hwnd: value.hwnd,
         }
     }
 }
