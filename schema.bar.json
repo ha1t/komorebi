@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "KomobarConfig",
-  "description": "The `komorebi.bar.json` configuration file reference for `v0.1.41`",
+  "description": "The `komorebi.bar.json` configuration file reference for `v0.1.42`",
   "type": "object",
   "properties": {
     "center_widgets": {
@@ -3435,6 +3435,17 @@
             }
           ]
         },
+        "workspace_windows": {
+          "description": "Configure the Workspace Windows widget (taskbar-like list of all\nwindows on the focused workspace)",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/KomorebiWorkspaceWindowsConfig"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "workspaces": {
           "description": "Configure the Workspaces widget",
           "anyOf": [
@@ -4101,6 +4112,30 @@
         "enable"
       ]
     },
+    "KomorebiWorkspaceWindowsConfig": {
+      "description": "Komorebi widget workspace windows configuration",
+      "type": "object",
+      "properties": {
+        "display": {
+          "description": "Display format of the workspace windows (default: IconAndTextOnSelected)",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DisplayFormat"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "enable": {
+          "description": "Enable the Komorebi Workspace Windows widget",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "enable"
+      ]
+    },
     "KomorebiWorkspacesConfig": {
       "description": "Komorebi widget workspaces configuration",
       "type": "object",
@@ -4581,6 +4616,21 @@
         {
           "description": "The full monitor options with the index and an optional work_area_offset",
           "$ref": "#/$defs/MonitorConfig"
+        }
+      ]
+    },
+    "MonocleFocusBehaviour": {
+      "description": "Behaviour when focusing in a direction while a monocle container is active",
+      "oneOf": [
+        {
+          "description": "Cycle the monocle container to the next/previous container in the workspace",
+          "type": "string",
+          "const": "Cycle"
+        },
+        {
+          "description": "Do nothing, allowing focus to fall through to cross-monitor logic",
+          "type": "string",
+          "const": "NoOp"
         }
       ]
     },
@@ -5802,6 +5852,23 @@
           "type": "object",
           "properties": {
             "content": {
+              "type": "integer",
+              "format": "int"
+            },
+            "type": {
+              "type": "string",
+              "const": "FocusWindowByHwnd"
+            }
+          },
+          "required": [
+            "type",
+            "content"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "content": {
               "type": "array",
               "maxItems": 3,
               "minItems": 3,
@@ -5977,6 +6044,34 @@
             "type": {
               "type": "string",
               "const": "CrossMonitorMoveBehaviour"
+            }
+          },
+          "required": [
+            "type",
+            "content"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "ToggleMonocleFocusBehaviour"
+            }
+          },
+          "required": [
+            "type"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "content": {
+              "$ref": "#/$defs/MonocleFocusBehaviour"
+            },
+            "type": {
+              "type": "string",
+              "const": "MonocleFocusBehaviour"
             }
           },
           "required": [
@@ -8800,6 +8895,9 @@
         "monitors": {
           "$ref": "#/$defs/Ring"
         },
+        "monocle_focus_behaviour": {
+          "$ref": "#/$defs/MonocleFocusBehaviour"
+        },
         "mouse_follows_focus": {
           "type": "boolean"
         },
@@ -8844,6 +8942,7 @@
         "new_window_behaviour",
         "float_override",
         "cross_monitor_move_behaviour",
+        "monocle_focus_behaviour",
         "unmanaged_window_operation_behaviour",
         "mouse_follows_focus",
         "has_pending_raise_op"
