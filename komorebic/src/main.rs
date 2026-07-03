@@ -1003,6 +1003,12 @@ struct EagerFocus {
 }
 
 #[derive(Parser)]
+struct FocusWindowByHwnd {
+    /// Window handle (HWND) of the window to focus
+    hwnd: isize,
+}
+
+#[derive(Parser)]
 struct ScrollingLayoutColumns {
     /// Desired number of visible columns
     count: NonZeroUsize,
@@ -1140,6 +1146,9 @@ enum SubCommand {
     /// Focus the first managed window matching the given exe
     #[clap(arg_required_else_help = true)]
     EagerFocus(EagerFocus),
+    /// Focus the managed window with the given HWND
+    #[clap(arg_required_else_help = true)]
+    FocusWindowByHwnd(FocusWindowByHwnd),
     /// Stack the focused window in the specified direction
     #[clap(arg_required_else_help = true)]
     Stack(Stack),
@@ -2097,6 +2106,9 @@ fn main() -> eyre::Result<()> {
         }
         SubCommand::EagerFocus(args) => {
             send_message(&SocketMessage::EagerFocus(args.exe))?;
+        }
+        SubCommand::FocusWindowByHwnd(args) => {
+            send_message(&SocketMessage::FocusWindowByHwnd(args.hwnd))?;
         }
         SubCommand::MoveToMonitor(args) => {
             send_message(&SocketMessage::MoveContainerToMonitorNumber(args.target))?;
