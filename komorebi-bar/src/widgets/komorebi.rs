@@ -942,7 +942,8 @@ impl ContainerInfo {
     /// Function ensures only one container is marked as focused, prioritizing
     /// floating → monocle → tiled.
     pub fn from_all_containers(ws: &Workspace) -> Vec<Self> {
-        let has_focused_float = ws.floating_windows().iter().any(|w| w.is_focused());
+        let has_focused_float = ws.floating_windows().iter().any(|w| w.is_focused())
+            || ws.maximized_window.as_ref().is_some_and(|w| w.is_focused());
 
         // Monocle container first if present
         let monocle = ws
@@ -959,8 +960,15 @@ impl ContainerInfo {
 
         // All floating windows
         let floats = ws.floating_windows().iter().map(Self::from_window);
+        // The maximized window, if any
+        let maximized = ws.maximized_window.as_ref().map(Self::from_window);
         // All windows
-        monocle.into_iter().chain(tiled).chain(floats).collect()
+        monocle
+            .into_iter()
+            .chain(tiled)
+            .chain(floats)
+            .chain(maximized)
+            .collect()
     }
 
     /// Creates a `ContainerInfo` for the currently focused item in the workspace.
@@ -1005,11 +1013,12 @@ impl ContainerInfo {
 }
 
 /// Stores basic information about a single window in a container.
-/// Contains the window's title and its icon, if available.
+/// Contains the window's title, its icon if available, and its hwnd.
 #[derive(Clone, Debug)]
 pub struct WindowInfo {
     pub title: Option<String>,
     pub icon: Option<ImageIcon>,
+    pub hwnd: isize,
 }
 
 impl From<&Window> for WindowInfo {
@@ -1020,6 +1029,7 @@ impl From<&Window> for WindowInfo {
                 windows_icons::get_icon_by_hwnd(value.hwnd)
                     .or_else(|| windows_icons_fallback::get_icon_by_process_id(value.process_id()))
             }),
+            hwnd: value.hwnd,
         }
     }
 }
