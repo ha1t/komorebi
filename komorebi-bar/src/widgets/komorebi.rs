@@ -642,9 +642,10 @@ impl FocusedContainerBar {
                     FocusedContainerBar::show_icon::<false>(_self, ctx, ui, info);
                     FocusedContainerBar::show_title(_self, ui, info, color);
                 },
+                // Windows without an icon always show their title to avoid an invisible button
                 IconAndTextOnSelected => |_self, ctx, ui, info, color, focused| {
                     FocusedContainerBar::show_icon::<false>(_self, ctx, ui, info);
-                    if focused {
+                    if focused || info.icon.is_none() {
                         FocusedContainerBar::show_title(_self, ui, info, color);
                     }
                 },
