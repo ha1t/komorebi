@@ -919,7 +919,7 @@ git commit -m "chore(schema): workspace_windows 追加に伴い schema.bar.json 
 ユーザーの `komorebi.bar.json` の `komorebi` ウィジェット設定に追加（バックアップを取ってから）:
 
 ```json
-"workspace_windows": { "enable": true, "display": "icon_and_text_on_selected" }
+"workspace_windows": { "enable": true, "display": "IconAndTextOnSelected" }
 ```
 
 - [ ] **Step 2: ビルドした komorebi / komorebi-bar で起動**

@@ -76,7 +76,7 @@ state通知 ──────────────────────�
 
    ```json
    "komorebi": {
-     "workspace_windows": { "enable": true, "display": "icon_and_text_on_selected" }
+     "workspace_windows": { "enable": true, "display": "IconAndTextOnSelected" }
    }
    ```
 
