@@ -890,6 +890,8 @@ impl MonitorInfo {
         I: Iterator<Item = (usize, &'a Workspace)> + 'a,
     {
         iter.map(move |(index, ws)| {
+            // Container collection is intentionally unconditional: the workspace_windows
+            // widget needs every container's windows at all times, not just for All* formats
             let containers = ContainerInfo::from_all_containers(ws);
             WorkspaceInfo {
                 name: ws
